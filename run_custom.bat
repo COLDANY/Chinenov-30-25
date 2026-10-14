@@ -1,0 +1,1 @@
+python src/main.py --vfs vfs.zip --script custom_script.txt

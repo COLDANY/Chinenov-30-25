@@ -1,8 +1,12 @@
 import argparse
 import tkinter as tk
 import os
+import zipfile
+VFS_TREE = {}
 
 CURRENT_PATH = "/"
+VFS_TREE = {}
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Эмулятор командной строки " \
     "UNIX")
@@ -86,6 +90,22 @@ def check_backspace(event):
 
     if text_widget.compare(cursor_pos, "<=", prefix_end):
         return "break"
+def load_vfs(vfs_path, text_widget):
+    global VFS_TREE
+    try:
+        with zipfile.ZipFile(vfs_path, "r") as z:
+            for name in z.namelist():
+                parts = [p for p in name.split("/") if p]
+                current = VFS_TREE
+                for part in parts:
+                    if part not in current:
+                        current[part] = {}
+                    current = current[part]
+        text_widget.insert(tk.END, "VFS успешно загружена в память.\n\n")
+        return True
+    except (FileNotFoundError, zipfile.BadZipFile):
+        text_widget.insert(tk.END, "Ошибка загрузки VFS\n")
+        return False
 
 def main():
     args = parse_args()
@@ -114,6 +134,11 @@ def main():
 
     text.bind("<Return>", on_enter)
     text.bind("<BackSpace>", check_backspace)
+
+    vfs_path = args.vfs
+    if vfs_path == "vfs.zip":
+        vfs_path = os.path.join(project_root, "vfs.zip")
+    load_vfs(vfs_path, text)
 
     root.mainloop()
 
