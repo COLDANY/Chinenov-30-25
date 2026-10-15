@@ -72,17 +72,16 @@ def execute_command(command_line, text_widget):
         text_widget.quit()
         return True
         
-    elif command == "clear":  # Добавили команду очистки экрана
+    elif command == "clear":
         text_widget.delete("1.0", tk.END)
         return True
 
-    elif command == "echo":  # Добавили команду вывода текста
+    elif command == "echo":
         text_widget.insert(tk.END, " ".join(args) + "\n")
         return True
         
     elif command == "ls":
         current_node = get_node_by_path(CURRENT_PATH)
-        # Проверяем, что узел существует, даже если он пустой
         if current_node is not None:
             text_widget.insert(tk.END, "  ".join(current_node.keys()) + "\n")
             return True
@@ -105,9 +104,51 @@ def execute_command(command_line, text_widget):
                 CURRENT_PATH = new_path
             else:
                 text_widget.insert(tk.END, f"cd: {target}: папки не существует\n")
-                return False  # Ошибка навигации прерывает скрипт по ТЗ варианта 27
+                return False 
         return True
-        
+    elif command in ("cp", "mv"):
+        if len(args) < 2:
+            text_widget.insert(tk.END, f"{command}: требуется два аргумента\n")
+            return False
+
+        src_arg, dest_arg = args[0], args[1]
+
+        if src_arg.startswith("/"):
+            src_full = src_arg
+        else:
+            src_full = f"{CURRENT_PATH}/{src_arg}".replace("//", "/")
+
+        src_dir_path = "/".join(src_full.split("/")[:-1]) if "/".join(src_full.split("/")[:-1]) else "/"
+        src_name = src_full.split("/")[-1]
+
+        if dest_arg.startswith("/"):
+            dest_full = dest_arg
+        else:
+            dest_full = f"{CURRENT_PATH}/{dest_arg}".replace("//", "/")
+
+        dest_dir_path = "/".join(dest_full.split("/")[:-1]) if "/".join(dest_full.split("/")[:-1]) else "/"
+        dest_name = dest_full.split("/")[-1]
+
+        src_node = get_node_by_path(src_dir_path)
+        dest_node = get_node_by_path(dest_dir_path)
+
+        if src_node is not None and src_name in src_node and dest_node is not None:
+            if dest_name in dest_node and isinstance(dest_node[dest_name], dict) and dest_arg.endswith(dest_name):
+                dest_parent = dest_node[dest_name]
+                final_dest_name = src_name
+            else:
+                dest_parent = dest_node
+                final_dest_name = dest_name
+
+            if command == "cp":
+                dest_parent[final_dest_name] = src_node[src_name].copy()
+            else:
+                dest_parent[final_dest_name] = src_node[src_name]
+                del src_node[src_name]
+            return True
+        else:
+            text_widget.insert(tk.END, f"{command}: неверный путь или файл не найден\n")
+            return False
     else:
         text_widget.insert(tk.END, f"{command}: команда не найдена\n")
         return False

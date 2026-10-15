@@ -1,3 +1,7 @@
+cd home
+cp user /root_user
+cd /
 ls
+mv /root_user /home/new_admin
 cd home
 ls
