@@ -1,158 +1,177 @@
 import argparse
-import tkinter as tk
 import os
+import tkinter as tk
 import zipfile
-VFS_TREE = {}
 
 CURRENT_PATH = "/"
 VFS_TREE = {}
 
-def parse_args():
-    parser = argparse.ArgumentParser(description="Эмулятор командной строки " \
-    "UNIX")
-    parser.add_argument(
-        "--vfs",
-        default="vfs.zip",
-        help="Путь к ZIP-архиву виртуальной файловой системы",
-    )
 
-    parser.add_argument(
-        "--script",
-        default="script.txt",
-        help="Путь к стартовому текстовому скрипту",
-    )
+def parse_args():
+    """Разбирает аргументы командной строки."""
+    parser = argparse.ArgumentParser(description="Эмулятор UNIX")
+    parser.add_argument("--vfs", default="vfs.zip", help="Путь к ZIP VFS")
+    parser.add_argument("--script", default="script.txt", help="Путь к скрипту")
     return parser.parse_args()
 
+
 def on_enter(event):
+    """Обработчик нажатия клавиши Enter."""
     global CURRENT_PATH
-    
     text_widget = event.widget
     last_line_idx = text_widget.index("end-1c linestart")
     full_line = text_widget.get(last_line_idx, "end-1c")
 
     prompt = f"vfs-system:{CURRENT_PATH}$ "
-    command_line = full_line.replace(prompt,"",1).strip()
+    command_line = full_line.replace(prompt, "", 1).strip()
     text_widget.insert(tk.END, "\n")
 
     execute_command(command_line, text_widget)
-
     text_widget.insert(tk.END, f"vfs-system:{CURRENT_PATH}$ ")
     return "break"
 
-def run_startup_script(script_path, text_widget):
-    global CURRENT_PATH
 
+def run_startup_script(script_path, text_widget):
+    """Выполняет стартовый скрипт построчно до первой ошибки."""
+    global CURRENT_PATH
     with open(script_path, "r", encoding="utf-8") as f:
         for line in f:
-
-            command_line = line.strip()
-            if not command_line:
+            cmd = line.strip()
+            if not cmd:
                 continue
-
-            text_widget.insert(tk.END, f"vfs-" \
-                               f"system:{CURRENT_PATH}$ {command_line}\n")
-            success = execute_command(command_line, text_widget)
-
-            if not success:
-                text_widget.insert(tk.END, "Выполнение с" \
-                                   "крипта прервано из-за ошибки.\n")
+            text_widget.insert(tk.END, f"vfs-system:{CURRENT_PATH}$ {cmd}\n")
+            if not execute_command(cmd, text_widget):
+                text_widget.insert(tk.END, "Выполнение прервано.\n")
                 break
 
-def execute_command(command_line, text_widget):
+
+def cmd_exit(args, text_widget):
+    """Выход из программы."""
+    text_widget.quit()
+    return True
+
+
+def cmd_clear(args, text_widget):
+    """Очистка экрана."""
+    text_widget.delete("1.0", tk.END)
+    return True
+
+
+def cmd_echo(args, text_widget):
+    """Вывод текста."""
+    text_widget.insert(tk.END, " ".join(args) + "\n")
+    return True
+
+
+def cmd_ls(args, text_widget):
+    """Просмотр содержимого каталога VFS."""
+    node = get_node_by_path(CURRENT_PATH)
+    if node is not None:
+        text_widget.insert(tk.END, "  ".join(node.keys()) + "\n")
+        return True
+    return False
+
+
+def cmd_cd(args, text_widget):
+    """Смена текущей директории."""
     global CURRENT_PATH
-    parts = command_line.split()
+    target = args[0] if args else "/"
     
+    if target == "/":
+        CURRENT_PATH = "/"
+    else:
+        new_p = (
+            f"{CURRENT_PATH}/{target}".replace("//", "/")
+            if CURRENT_PATH != "/"
+            else f"/{target}"
+        )
+        if get_node_by_path(new_p) is not None:
+            CURRENT_PATH = new_p
+        else:
+            text_widget.insert(tk.END, f"cd: {target}: нет папки\n")
+            return False
+    return True
+
+
+def cmd_cp_mv(command, args, text_widget):
+    """Копирование и перемещение элементов VFS."""
+    if len(args) < 2:
+        text_widget.insert(tk.END, f"{command}: требуется два аргумента\n")
+        return False
+
+    src_arg, dest_arg = args[0], args[1]
+    src_f = (
+        src_arg
+        if src_arg.startswith("/")
+        else f"{CURRENT_PATH}/{src_arg}".replace("//", "/")
+    )
+    src_dp = "/".join(src_f.split("/")[:-1]) if "/".join(src_f.split("/")[:-1]) else "/"
+    src_n = src_f.split("/")[-1]
+
+    dest_f = (
+        dest_arg
+        if dest_arg.startswith("/")
+        else f"{CURRENT_PATH}/{dest_arg}".replace("//", "/")
+    )
+    dest_dp = (
+        "/".join(dest_f.split("/")[:-1]) if "/".join(dest_f.split("/")[:-1]) else "/"
+    )
+    dest_n = dest_f.split("/")[-1]
+
+    src_node = get_node_by_path(src_dp)
+    dest_node = get_node_by_path(dest_dp)
+
+    if src_node is not None and src_n in src_node and dest_node is not None:
+        if (
+            dest_n in dest_node
+            and isinstance(dest_node[dest_n], dict)
+            and dest_arg.endswith(dest_n)
+        ):
+            dest_parent = dest_node[dest_n]
+            final_dest_name = src_n
+        else:
+            dest_parent = dest_node
+            final_dest_name = dest_n
+
+        if command == "cp":
+            dest_parent[final_dest_name] = src_node[src_n].copy()
+        else:
+            dest_parent[final_dest_name] = src_node[src_n]
+            del src_node[src_n]
+        return True
+    text_widget.insert(tk.END, f"{command}: неверный путь или файл не найден\n")
+    return False
+
+
+# Картотека команд для исключения цикломатической сложности (McCabe = 1)
+COMMAND_MAP = {
+    "exit": cmd_exit,
+    "clear": cmd_clear,
+    "echo": cmd_echo,
+    "ls": cmd_ls,
+    "cd": cmd_cd,
+}
+
+
+def execute_command(command_line, text_widget):
+    """Маршрутизатор команд через паттерн словарь-диспетчер."""
+    parts = command_line.split()
     if not parts:
         return True
 
     command = parts[0]
     args = parts[1:]
 
-    if command == "exit":
-        text_widget.quit()
-        return True
-        
-    elif command == "clear":
-        text_widget.delete("1.0", tk.END)
-        return True
-
-    elif command == "echo":
-        text_widget.insert(tk.END, " ".join(args) + "\n")
-        return True
-        
-    elif command == "ls":
-        current_node = get_node_by_path(CURRENT_PATH)
-        if current_node is not None:
-            text_widget.insert(tk.END, "  ".join(current_node.keys()) + "\n")
-            return True
-        else:
-            text_widget.insert(tk.END, "ls: папка не найдена\n")
-            return False
-
-    elif command == "cd":
-        target = args[0] if args else "/"
-        
-        if target == "/":
-            CURRENT_PATH = "/"
-        else:
-            if CURRENT_PATH != "/":
-                new_path = f"{CURRENT_PATH}/{target}".replace("//", "/")
-            else:
-                new_path = f"/{target}"
-            
-            if get_node_by_path(new_path) is not None:
-                CURRENT_PATH = new_path
-            else:
-                text_widget.insert(tk.END, f"cd: {target}: папки не существует\n")
-                return False 
-        return True
+    # Ищем команду в словаре готовых функций
+    if command in COMMAND_MAP:
+        return COMMAND_MAP[command](args, text_widget)
     elif command in ("cp", "mv"):
-        if len(args) < 2:
-            text_widget.insert(tk.END, f"{command}: требуется два аргумента\n")
-            return False
+        return cmd_cp_mv(command, args, text_widget)
 
-        src_arg, dest_arg = args[0], args[1]
+    text_widget.insert(tk.END, f"{command}: команда не найдена\n")
+    return False
 
-        if src_arg.startswith("/"):
-            src_full = src_arg
-        else:
-            src_full = f"{CURRENT_PATH}/{src_arg}".replace("//", "/")
 
-        src_dir_path = "/".join(src_full.split("/")[:-1]) if "/".join(src_full.split("/")[:-1]) else "/"
-        src_name = src_full.split("/")[-1]
-
-        if dest_arg.startswith("/"):
-            dest_full = dest_arg
-        else:
-            dest_full = f"{CURRENT_PATH}/{dest_arg}".replace("//", "/")
-
-        dest_dir_path = "/".join(dest_full.split("/")[:-1]) if "/".join(dest_full.split("/")[:-1]) else "/"
-        dest_name = dest_full.split("/")[-1]
-
-        src_node = get_node_by_path(src_dir_path)
-        dest_node = get_node_by_path(dest_dir_path)
-
-        if src_node is not None and src_name in src_node and dest_node is not None:
-            if dest_name in dest_node and isinstance(dest_node[dest_name], dict) and dest_arg.endswith(dest_name):
-                dest_parent = dest_node[dest_name]
-                final_dest_name = src_name
-            else:
-                dest_parent = dest_node
-                final_dest_name = dest_name
-
-            if command == "cp":
-                dest_parent[final_dest_name] = src_node[src_name].copy()
-            else:
-                dest_parent[final_dest_name] = src_node[src_name]
-                del src_node[src_name]
-            return True
-        else:
-            text_widget.insert(tk.END, f"{command}: неверный путь или файл не найден\n")
-            return False
-    else:
-        text_widget.insert(tk.END, f"{command}: команда не найдена\n")
-        return False
-    
 def check_backspace(event):
     """Блокирует BackSpace, если курсор дошел до префикса."""
     text_widget = event.widget
@@ -160,10 +179,12 @@ def check_backspace(event):
     line_start = text_widget.index("end-1c linestart")
     prompt_len = len(f"vfs-system:{CURRENT_PATH}$ ")
     prefix_end = f"{line_start}+{prompt_len}c"
-
     if text_widget.compare(cursor_pos, "<=", prefix_end):
         return "break"
+
+
 def load_vfs(vfs_path, text_widget):
+    """Загружает структуру архива в память."""
     global VFS_TREE
     try:
         with zipfile.ZipFile(vfs_path, "r") as z:
@@ -180,36 +201,38 @@ def load_vfs(vfs_path, text_widget):
         text_widget.insert(tk.END, "Ошибка загрузки VFS\n")
         VFS_TREE["home"] = {"user": {}}
         return False
-    
+
+
 def get_node_by_path(path_str):
-    """Возвращает узел дерева VFS по текстовому пути."""
+    """Возвращает узел дерева VFS по пути."""
     if path_str == "/":
         return VFS_TREE
-
     parts = [p for p in path_str.split("/") if p]
     current = VFS_TREE
-
     for part in parts:
         if part in current and isinstance(current[part], dict):
             current = current[part]
         else:
-            return None  
-            
+            return None
     return current
 
+
 def main():
+    """Точка входа."""
     args = parse_args()
-    
     base_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(base_dir)
 
-    script_path = args.script
-    if script_path == "script.txt":
-        script_path = os.path.join(project_root, "script.txt")
-
-    vfs_path = args.vfs
-    if vfs_path == "vfs.zip":
-        vfs_path = os.path.join(project_root, "vfs.zip")
+    script_path = (
+        os.path.join(project_root, "script.txt")
+        if args.script == "script.txt"
+        else args.script
+    )
+    vfs_path = (
+        os.path.join(project_root, "vfs.zip")
+        if args.vfs == "vfs.zip"
+        else args.vfs
+    )
 
     root = tk.Tk()
     root.title("vfs-system")
@@ -226,12 +249,12 @@ def main():
     text.insert(tk.END, f"vfs-system:{CURRENT_PATH}$ ")
     text.focus_set()
     load_vfs(vfs_path, text)
-    
     run_startup_script(script_path, text)
 
     text.bind("<Return>", on_enter)
     text.bind("<BackSpace>", check_backspace)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
