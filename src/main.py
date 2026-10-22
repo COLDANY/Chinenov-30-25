@@ -67,7 +67,8 @@ def cmd_ls(args, text_widget):
 
 def cmd_cd(args, text_widget):
     global current_path
-    target = args if args else "/"
+    # ИСПРАВЛЕНИЕ: добавляем, чтобы извлечь чистую строку из списка аргументов
+    target = args[0] if args else "/"
 
     if target == "/":
         current_path = "/"
@@ -106,9 +107,9 @@ def cmd_cp_mv(command, args, text_widget):
     if len(args) < len_args:
         text_widget.insert(tk.END, f"{command}: требуется два аргумента\n")
         return False
-
-    src_dp, src_n, _ = resolve_path(args)
-    dest_dp, dest_n, dest_arg = resolve_path(args)
+    src_arg, dest_arg = args[0], args[1]
+    src_dp, src_n, _ = resolve_path(src_arg)
+    dest_dp, dest_n, dest_arg = resolve_path(dest_arg)
 
     src_node = get_node_by_path(src_dp)
     dest_node = get_node_by_path(dest_dp)
@@ -151,8 +152,7 @@ def execute_command(command_line, text_widget):
     parts = command_line.split()
     if not parts:
         return True
-
-    command = parts
+    command = parts[0]
     args = parts[1:]
 
     if command in COMMAND_MAP:
