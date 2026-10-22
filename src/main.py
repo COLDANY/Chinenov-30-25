@@ -102,7 +102,8 @@ def resolve_path(arg_path):
 
 
 def cmd_cp_mv(command, args, text_widget):
-    if len(args) < 2:
+    len_args = 2
+    if len(args) < len_args:
         text_widget.insert(tk.END, f"{command}: требуется два аргумента\n")
         return False
 
