@@ -67,7 +67,6 @@ def cmd_ls(args, text_widget):
 
 def cmd_cd(args, text_widget):
     global current_path
-    # ИСПРАВЛЕНИЕ: добавляем, чтобы извлечь чистую строку из списка аргументов
     target = args[0] if args else "/"
 
     if target == "/":
